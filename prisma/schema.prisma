@@ -1,0 +1,653 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model offices {
+  id       Int     @id @default(autoincrement())
+  name     String  @default("Principal Office")
+  nickname String  @default("Johana Pacheco Professional")
+  email    String? @unique
+  phone    String? @default("000-000-0000")
+  address  String? @default("No especificada")
+
+  employees    employees[] // <-- referencia al modelo "employees"
+  transactions transactions[]
+  payrolls     payrolls[]
+  entry_orders entry_orders[]
+  article_stocks article_stocks[]
+  work_orders    work_orders[]
+  cashiers  cashiers[]
+}
+
+model type_employees {
+  id   Int    @id @default(autoincrement())
+  name String @db.VarChar(50)
+
+  employees employees[]
+}
+
+model employees {
+  id              Int     @id @default(autoincrement())
+  name            String  @db.VarChar(80)
+  phone           String? // (antes tenías "phome")
+  office_id       Int
+  typeEmployee_id Int
+
+  office       offices        @relation(fields: [office_id], references: [id])
+  typeEmployee type_employees @relation(fields: [typeEmployee_id], references: [id])
+  user         users?
+  payrolls     payrolls[]
+
+  @@index([office_id])
+  @@index([typeEmployee_id])
+}
+
+model users {
+  id          Int       @id @default(autoincrement())
+  username    String    @db.VarChar(20)
+  password    String?   @db.VarChar(100)
+  is_admin    Boolean   @default(false)
+  employee_id Int       @unique
+  pin_lookup  String?   @unique
+  employee    employees @relation(fields: [employee_id], references: [id])
+  is_active   Boolean   @default(true)
+
+  work_orders work_orders[] @relation("work_order_user")
+  receipts    receipts[]
+  cashier    cashiers?
+  cashier_transactions cashier_transactions[]
+}
+
+model banks {
+  id            Int             @id @default(autoincrement())
+  name          String          @db.VarChar(50)
+  bank_accounts bank_accounts[]
+}
+
+model accounts {
+  id                Int                 @id @default(autoincrement())
+  code              String              @unique
+  name              String
+  type              AccountType
+  parent_id         Int?
+  parent            accounts?           @relation("acct_parent", fields: [parent_id], references: [id])
+  children          accounts[]          @relation("acct_parent")
+  is_cash           Boolean             @default(false) // marcar cuentas de efectivo (bancos/caja)
+  bank_accounts     bank_accounts[]
+  transaction_lines transaction_lines[]
+
+  typePayrollsDebit  type_payrolls[] @relation("tp_debit")
+  typePayrollsCredit type_payrolls[] @relation("tp_credit")
+  payment_method     payment_methods[]
+  suppliers          suppliers[]
+  taxez              taxes[]
+  cashiers    cashiers[]
+
+  @@index([parent_id])
+  @@index([type])
+}
+
+model bank_accounts {
+  id          Int        @id @default(autoincrement())
+  number      String     @db.VarChar(25)
+  nickname    String     @db.VarChar(30)
+  is_checking Boolean    @default(false)
+  bank_id     Int
+  bank        banks      @relation(fields: [bank_id], references: [id])
+  account_id  Int
+  account     accounts   @relation(fields: [account_id], references: [id])
+  payrolls    payrolls[]
+
+  @@index([bank_id])
+}
+
+// ASSET: Caja, Bancos, Cuentas por cobrar, Inventario
+//
+// LIABILITY: Proveedores (Cuentas por pagar)
+//
+// EQUITY
+//
+// INCOME: Ventas, Otros ingresos
+//
+// EXPENSE: Planillas, Compras/Costos, Comisiones de tarjeta, Servicios, etc.
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  INCOME
+  EXPENSE
+}
+
+enum TxType {
+  MANUAL
+  PURCHASE
+  PAYROLL
+  SALES
+  CARD
+  BANK_TRANSFER
+}
+
+model transactions {
+  id         Int                 @id @default(autoincrement())
+  cod        String              @unique
+  ref_id     Int?
+  date       DateTime
+  memo       String? // descripción
+  source     String? // módulo origen: 'SALES','PAYROLL','PURCHASE','MANUAL','CARD'
+  ref        String? // número doc, factura, etc.
+  currency   String              @default("USD")
+  type       TxType              @default(MANUAL)
+  lines      transaction_lines[]
+  office_id  Int
+  office     offices             @relation(fields: [office_id], references: [id])
+  created_at DateTime            @default(now())
+
+  payrolls payrolls[]
+
+  @@index([office_id])
+  @@index([type])
+  @@index([date])
+}
+
+model transaction_lines {
+  id             Int     @id @default(autoincrement())
+  transaction_id Int
+  account_id     Int
+  // solo uno de los dos distinto de 0
+  debit          Decimal @default("0") @db.Decimal(18, 2)
+  credit         Decimal @default("0") @db.Decimal(18, 2)
+
+  transaction transactions @relation(fields: [transaction_id], references: [id], onDelete: Cascade)
+  account     accounts     @relation(fields: [account_id], references: [id], onDelete: Restrict)
+
+  @@index([account_id])
+  @@index([transaction_id])
+}
+
+enum PayrollEffect {
+  ADD // suma al total
+  SUBTRACT // resta del total
+}
+
+model type_payrolls {
+  id     Int           @id @default(autoincrement())
+  name   String
+  effect PayrollEffect @default(ADD)
+
+  default_debit_account_id Int?
+  default_debit_account    accounts? @relation("tp_debit", fields: [default_debit_account_id], references: [id])
+
+  default_credit_account_id Int?
+  default_credit_account    accounts? @relation("tp_credit", fields: [default_credit_account_id], references: [id])
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  items payroll_items[]
+}
+
+enum TypePay {
+  CASH
+  CARD
+  CHECK
+  ZELLE
+  TRANSFER
+}
+
+model payrolls {
+  id           Int       @id @default(autoincrement())
+  employee_id  Int
+  employee     employees @relation(fields: [employee_id], references: [id])
+  year         Int
+  month        Int
+  start_period Int
+  end_period   Int
+
+  // Totales cacheados (útiles para UI; se recomputa al guardar items)
+  gross_total      Decimal @default("0") @db.Decimal(18, 2) // suma de ADD
+  deductions_total Decimal @default("0") @db.Decimal(18, 2) // suma de SUBTRACT
+  net_total        Decimal @default("0") @db.Decimal(18, 2) // gross - deductions
+
+  // Banco desde donde se paga (opcional, por si se paga en efectivo)
+  bank_account_id Int?
+  bank_account    bank_accounts? @relation(fields: [bank_account_id], references: [id])
+  type_pay        TypePay        @default(CASH)
+  // Multisucursal (opción A): la planilla pertenece a una oficina
+  office_id       Int
+  office          offices        @relation(fields: [office_id], references: [id])
+  //
+  // Link a transacción contable cuando se "posteó" (opcional)
+  transaction_id  Int?
+  transaction     transactions?  @relation(fields: [transaction_id], references: [id])
+
+  notes      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  items payroll_items[]
+
+  @@index([employee_id])
+  @@index([office_id])
+  @@index([year, month])
+}
+
+model payroll_items {
+  id              Int           @id @default(autoincrement())
+  payroll_id      Int
+  payroll         payrolls      @relation(fields: [payroll_id], references: [id])
+  type_payroll_id Int
+  type            type_payrolls @relation(fields: [type_payroll_id], references: [id])
+  // Puedes usar qty * rate o directly amount:
+  description     String?
+  qty             Decimal       @default("1") @db.Decimal(18, 4)
+  rate            Decimal       @default("0") @db.Decimal(18, 4)
+  amount          Decimal       @default("0") @db.Decimal(18, 2) // si no usas qty*rate, guarda aquí
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  @@index([payroll_id])
+  @@index([type_payroll_id])
+}
+
+model suppliers {
+  id       Int     @id @default(autoincrement())
+  fullname String // nombre legal completo
+  name     String // nombre corto / comercial
+  phone    String?
+  email    String?
+  address  String?
+
+  account_id Int      @unique
+  account    accounts @relation(fields: [account_id], references: [id])
+
+  brands    suppliers_brands[]
+  entry_orders entry_orders[]
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+}
+
+model brands {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+
+  suppliers suppliers_brands[]
+  articules articles[]
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+}
+
+model suppliers_brands {
+  brand_id    Int
+  supplier_id Int
+
+  brand    brands    @relation(fields: [brand_id], references: [id], onDelete: Cascade)
+  supplier suppliers @relation(fields: [supplier_id], references: [id], onDelete: Cascade)
+
+  @@id([brand_id, supplier_id])
+  @@index([supplier_id])
+}
+
+model taxes {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  rate        Decimal   @db.Decimal(6,3)
+  active      Boolean   @default(true)
+  account_id  Int?
+  account     accounts? @relation(fields: [account_id], references: [id])
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+  article_taxes articles_taxes[]
+  receipt_taxes receipt_taxes[]
+}
+
+model categories {
+  id          Int        @id @default(autoincrement())
+  name        String     @unique
+  code        String
+  description String?
+  parent_id   Int?
+  is_service  Boolean   @default(false)
+  parent      categories? @relation("CategoryParent", fields: [parent_id], references: [id])
+  children    categories[] @relation("CategoryParent")
+
+  articles    articles[]
+  created_at  DateTime   @default(now())
+  updated_at  DateTime   @updatedAt
+}
+
+model articles {
+  id           Int       @id @default(autoincrement())
+  brand_id     Int
+  category_id  Int?
+  name         String
+  description  String?
+  model_code   String?
+  sku          String?
+  bar_code     String?
+  cost_price   Decimal   @db.Decimal(18,2)
+  sale_price   Decimal   @db.Decimal(18,2)
+  photo        String?
+  is_cc        Boolean
+
+  brand        brands    @relation(fields: [brand_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  category     categories? @relation(fields: [category_id], references: [id])
+  taxes        articles_taxes[]
+  history      article_historys[]
+  entry_order_details entry_order_details[]
+  work_order_item work_order_items[]
+  article_stocks article_stocks[]
+  receipt_items receipt_items[]
+
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
+
+  @@index([brand_id])
+}
+
+model articles_taxes {
+  article_id Int
+  tax_id     Int
+  is_active  Boolean  @default(true)
+
+  article  articles @relation(fields: [article_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  tax      taxes    @relation(fields: [tax_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@id([article_id, tax_id])
+  @@index([tax_id])
+}
+
+model article_historys {
+  id          Int       @id @default(autoincrement())
+  article_id  Int
+  description String
+
+  article     articles  @relation(fields: [article_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  created_at  DateTime  @default(now())
+
+  @@index([article_id])
+}
+
+model entry_orders {
+  id            Int              @id @default(autoincrement())
+  code          String           @unique
+  supplier_id   Int?
+  branch_id     Int
+  date          DateTime         @default(now())
+  total_amount  Decimal?         @db.Decimal(12,2)
+  disccount     Decimal?         @db.Decimal(12,2)
+  notes         String?
+  is_invoiced   Boolean          @default(false)
+  is_posted     Boolean          @default(false)
+  created_at    DateTime         @default(now())
+  updated_at    DateTime         @updatedAt
+
+
+  supplier      suppliers?        @relation(fields: [supplier_id], references: [id])
+  branch        offices          @relation(fields: [branch_id], references: [id])
+  details       entry_order_details[]
+}
+
+model entry_order_details {
+  id              Int        @id @default(autoincrement())
+  entry_order_id  Int
+  article_id      Int
+  quantity        Decimal    @db.Decimal(12,2)
+  unit_cost       Decimal?   @db.Decimal(12,2)
+  subtotal        Decimal?   @db.Decimal(12,2)
+
+  entry_order     entry_orders @relation(fields: [entry_order_id], references: [id])
+  article         articles    @relation(fields: [article_id], references: [id])
+}
+
+model article_stocks {
+  id           Int        @id @default(autoincrement())
+  branch_id    Int
+  article_id   Int
+  stock        Decimal     @default(0.00) @db.Decimal(12,2)
+  updated_at   DateTime    @updatedAt
+
+  branch       offices    @relation(fields: [branch_id], references: [id])
+  article      articles    @relation(fields: [article_id], references: [id])
+
+  @@unique([branch_id, article_id])
+}
+
+model customers  {
+  id         Int              @id @default(autoincrement())
+  name       String           @db.VarChar(150)
+  nickname   String?          @db.VarChar(100)
+  address    String?          @db.VarChar(255)
+  phone      String?          @db.VarChar(30)
+  email      String?
+  date       String?
+  work_orders work_orders[]
+
+  created_at DateTime         @default(now())
+  updated_at DateTime         @updatedAt
+
+  receipts receipts[]
+
+  @@index([name])
+  @@index([phone])
+}
+
+enum WorkOrderStatus {
+  OPEN
+  CERRADA
+}
+
+model work_orders {
+  id Int @id @default(autoincrement())
+  customer_id   Int
+  office_id   Int
+  user_id     Int
+  job_detail      String     @db.Text
+  employee_notes  String?    @db.Text
+  subtotal        Decimal    @db.Decimal(12,2) @default(0)
+  discount        Decimal    @db.Decimal(12,2) @default(0)
+  total           Decimal    @db.Decimal(12,2) @default(0)
+  created_at      DateTime   @default(now())
+  updated_at      DateTime   @updatedAt
+  status          WorkOrderStatus
+  is_invoiced     Boolean    @default(false)
+
+  customer        customers    @relation(fields: [customer_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  office          offices    @relation(fields: [office_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user            users      @relation("work_order_user", fields: [user_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  items          work_order_items[]
+  receipts       receipts[]
+  @@index([customer_id])
+  @@index([office_id])
+  @@index([user_id])
+  @@index([created_at])
+}
+
+model work_order_items {
+  id             Int        @id @default(autoincrement())
+  work_order_id  Int
+  article_id     Int
+  quantity       Decimal     @db.Decimal(12,3) @default(1)
+  price          Decimal     @db.Decimal(12,2) @default(0)
+  total          Decimal     @db.Decimal(12,2) @default(0)
+  note           String?     @db.VarChar(255)
+  created_at     DateTime    @default(now())
+  updated_at     DateTime    @updatedAt
+
+  work_order     work_orders @relation(fields: [work_order_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  article        articles    @relation(fields: [article_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([work_order_id])
+  @@index([article_id])
+  @@index([created_at])
+}
+
+enum movement_type {
+  entry
+  reversal
+  withdrawal
+  adjustment
+}
+
+enum payment_method {
+  cash
+  card
+}
+
+model payment_methods {
+  id             Int             @id @default(autoincrement())
+  name           String          @db.Text
+  account_id     Int?
+  is_cash        Boolean
+
+  account     accounts? @relation(fields: [account_id], references: [id], onDelete: SetNull)
+
+  created_at     DateTime        @default(now())
+  updated_at     DateTime        @updatedAt
+
+  receipts receipts[]
+  cashier_transactions cashier_transactions[]
+
+  @@index([account_id])
+  @@index([is_cash])
+}
+
+model cashiers {
+  id          Int       @id @default(autoincrement())
+  user_id     Int @unique
+  office_id   Int
+  account_id  Int                 // cuenta contable de efectivo (ASSET)
+  is_active   Boolean   @default(true)
+
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+
+
+  user        users     @relation(fields: [user_id], references: [id])
+  office      offices   @relation(fields: [office_id], references: [id])
+  account     accounts  @relation(fields: [account_id], references: [id])
+  receipts   receipts[]
+  cashier_transactions cashier_transactions[]
+
+  @@index([user_id])
+  @@index([office_id])
+  @@index([account_id])
+  @@index([is_active])
+}
+
+enum CashierTxnType {
+  ENTRY
+  EXPENSE
+}        // entrada o gasto
+enum ReceiptStatus {
+  PAID
+  VOID
+}             // recibo normal o anulado
+
+model receipts {
+  id               Int       @id @default(autoincrement())
+  cashier_id       Int
+  user_id          Int
+  customer_id      Int?      // opcional
+  work_order_id    Int?      // opcional: si proviene de una orden
+  payment_method_id Int      // método de pago usado
+
+  subtotal         Decimal   @db.Decimal(12,2) @default(0)
+  tax_total        Decimal   @db.Decimal(12,2) @default(0)
+  discount_total   Decimal   @db.Decimal(12,2) @default(0) // opcional, por si aplicas descuentos
+  total            Decimal   @db.Decimal(12,2) @default(0)
+
+  notes            String?   @db.Text
+  status           ReceiptStatus @default(PAID)
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+  voided_at        DateTime? // si se anula
+
+  // Relaciones
+  cashier           cashiers   @relation(fields: [cashier_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user             users     @relation(fields: [user_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  customer         customers? @relation(fields: [customer_id], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  work_order       work_orders? @relation(fields: [work_order_id], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  payment_method   payment_methods @relation(fields: [payment_method_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  items            receipt_items[]
+  taxes            receipt_taxes[]        // detalle por impuesto (sumas a nivel recibo)
+  transactions     cashier_transactions[] // vínculo a movimientos de caja (generalmente 1)
+
+  @@index([cashier_id])
+  @@index([user_id])
+  @@index([customer_id])
+  @@index([work_order_id])
+  @@index([payment_method_id])
+  @@index([created_at])
+}
+
+model receipt_items {
+  id            Int      @id @default(autoincrement())
+  receipt_id    Int
+  article_id    Int
+  name          String   // nombre del artículo al momento de la venta (snapshot)
+  qty           Decimal  @db.Decimal(12,3) @default(1)
+  unit_price    Decimal  @db.Decimal(12,4) // precio unitario sin impuestos
+  tax_amount    Decimal  @db.Decimal(12,4) @default(0) // impuestos de la línea (qty * impuestos unit)
+  line_subtotal Decimal  @db.Decimal(12,2) // qty * unit_price
+  line_total    Decimal  @db.Decimal(12,2) // line_subtotal + tax_amount
+
+  // Relaciones
+  receipt       receipts @relation(fields: [receipt_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  article       articles @relation(fields: [article_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([receipt_id])
+  @@index([article_id])
+}
+
+model receipt_taxes {
+  id          Int      @id @default(autoincrement())
+  receipt_id  Int
+  tax_id      Int      // referencia al impuesto configurado
+  name        String   // snapshot del nombre del impuesto
+  rate        Decimal  @db.Decimal(8,6) // snapshot de la tasa (ej. 0.043)
+  amount      Decimal  @db.Decimal(12,2) // total de ese impuesto en el recibo
+
+  receipt     receipts @relation(fields: [receipt_id], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  tax         taxes    @relation(fields: [tax_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([receipt_id, tax_id]) // un registro por impuesto en el recibo
+  @@index([tax_id])
+}
+
+model cashier_transactions {
+  id               Int             @id @default(autoincrement())
+  cashier_id        Int
+  user_id          Int
+  type             CashierTxnType
+  amount           Decimal         @db.Decimal(12,2) // positivo; el signo lo decide "type"
+  receipt_id       Int?            // si viene de un recibo
+  payment_method_id Int?           // útil para gastos o para duplicar la info del recibo
+  note             String?         @db.Text
+  created_at       DateTime        @default(now())
+
+  cahier           cashiers         @relation(fields: [cashier_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user             users           @relation(fields: [user_id], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  receipt          receipts?       @relation(fields: [receipt_id], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  payment_method   payment_methods? @relation(fields: [payment_method_id], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([cashier_id])
+  @@index([user_id])
+  @@index([receipt_id])
+  @@index([payment_method_id])
+}
