@@ -9,7 +9,7 @@ interface JWTPayload {
 }
 
 export default defineEventHandler(async (event) => {
-    // 1. Leer token desde la cookie
+    // 1. Leer token desde cookie
     const token = getCookie(event, 'token')
     if (!token) {
         throw createError({
@@ -19,12 +19,11 @@ export default defineEventHandler(async (event) => {
         })
     }
 
-    // 2. Verificar el token
-    let payload: JWTPayload
-    try {
-        payload = (await verifyToken(token)) as JWTPayload
-    } catch (err) {
-        console.error('Error verificando token en /api/auth/me:', err)
+    // 2. Verificar token con tu helper
+    let payload = (await verifyToken(token)) as JWTPayload | null
+
+    if (!payload) {
+        // verifyToken devolvió null → token inválido / expirado
         throw createError({
             statusCode: 401,
             statusMessage: 'Token inválido',
@@ -32,10 +31,10 @@ export default defineEventHandler(async (event) => {
         })
     }
 
-    // 3. Obtener el id del usuario desde el payload (id o sub)
+    // 3. Sacar el id del payload (id o sub)
     const userId =
         payload.id ??
-        (payload.sub ? Number(payload.sub) : null)
+        (payload.sub ? Number(payload.sub) : NaN)
 
     if (!userId || Number.isNaN(userId)) {
         throw createError({
@@ -45,7 +44,7 @@ export default defineEventHandler(async (event) => {
         })
     }
 
-    // 4. Buscar usuario en la BD
+    // 4. Buscar el usuario en la BD
     const user = await prisma.users.findUnique({
         where: { id: userId },
     })
@@ -61,7 +60,7 @@ export default defineEventHandler(async (event) => {
     // 5. Limpiar campos sensibles
     const { password, pin_lookup, ...publicUser } = user as any
 
-    // 6. Responder con el usuario (puedes añadir más info si quieres)
+    // 6. Devolver usuario (igual estilo que login)
     return {
         user: publicUser,
     }
