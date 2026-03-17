@@ -651,3 +651,56 @@ model cashier_transactions {
   @@index([receipt_id])
   @@index([payment_method_id])
 }
+
+model FacGenerica {
+  id                     Int       @id @default(autoincrement())
+  numero                 String?   @db.VarChar(50)
+  fecha                  DateTime  @default(now())
+
+  cliente                String?   @db.VarChar(255)
+  direccion_envio        String?   @db.Text
+  fecha_maximo_envio     DateTime?
+
+  observacion            String?   @db.Text
+  paga_con_tarjeta       Boolean   @default(false)
+
+  total_descuento        Decimal   @default(0) @db.Decimal(12,2)
+  sub_total              Decimal   @default(0) @db.Decimal(12,2)
+  taxes                  Decimal   @default(0) @db.Decimal(12,2)
+  total                  Decimal   @default(0) @db.Decimal(12,2)
+
+  total_a_colocar_square Decimal   @default(0) @db.Decimal(12,2)
+  square_fee_calculado   Decimal   @default(0) @db.Decimal(12,2)
+
+  tasa_tax               Decimal   @default(0.053) @db.Decimal(5,4)
+  tasa_square            Decimal   @default(0.035) @db.Decimal(5,4)
+  fee_square_fijo        Decimal   @default(0.15) @db.Decimal(10,2)
+
+  cuerpo                 CuerpoFacGenerica[]
+
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+}
+
+model CuerpoFacGenerica {
+  id               Int      @id @default(autoincrement())
+
+  facGenericaId    Int
+  facGenerica      FacGenerica @relation(fields: [facGenericaId], references: [id], onDelete: Cascade)
+
+  cod              String?  @db.VarChar(50)
+  articulo         String   @db.VarChar(255)
+
+  precio           Decimal  @default(0) @db.Decimal(12,2)
+  cantidad         Decimal  @default(0) @db.Decimal(12,2)
+
+  descuento_unidad Decimal  @default(0) @db.Decimal(12,2)
+
+  total_descuento  Decimal  @default(0) @db.Decimal(12,2)
+  total_registro   Decimal  @default(0) @db.Decimal(12,2)
+
+  orden            Int      @default(0)
+
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+}

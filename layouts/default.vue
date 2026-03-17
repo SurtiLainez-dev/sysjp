@@ -115,6 +115,8 @@
             <v-list-item density="compact" @click="goUrl('/admin/inventory/entry_orders/new')"  value="inventory_entry_orders_new"  title="Crear Orden de Entrada"></v-list-item>
           </v-list-group>
 
+          <v-list-item density="compact" @click="goUrl('/fac_generica/new')" prepend-icon="mdi-file-document" value="fac-generica-new"  title="Nueva Fac. Generica"></v-list-item>
+          <v-list-item density="compact" @click="goUrl('/fac_generica')" prepend-icon="mdi-file-document" value="fac-genericas"  title="Fac. Genericas"></v-list-item>
           <v-list-item density="compact" @click="goUrl('/work_orders/new')"
                        prepend-icon="mdi-file-document"
                        value="work-orden-new"  title="Nueva Orden de Trabajo"></v-list-item>
