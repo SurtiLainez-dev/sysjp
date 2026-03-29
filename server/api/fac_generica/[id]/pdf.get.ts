@@ -20,7 +20,9 @@ export default defineEventHandler(async (event) => {
             where: { id },
             include: {
                 cuerpo: {
-                    orderBy: { orden: "asc" },
+                    orderBy: {
+                        orden: "asc",
+                    },
                 },
             },
         })
@@ -37,27 +39,35 @@ export default defineEventHandler(async (event) => {
             return Number.isFinite(n) ? n : 0
         }
 
-        const round2 = (value: number): number =>
-            Math.round((value + Number.EPSILON) * 100) / 100
+        const round2 = (value: number): number => {
+            return Math.round((value + Number.EPSILON) * 100) / 100
+        }
 
-        const money = (value: unknown): string =>
-            new Intl.NumberFormat("en-US", {
+        const money = (value: unknown): string => {
+            return new Intl.NumberFormat("en-US", {
                 style: "currency",
                 currency: "USD",
                 minimumFractionDigits: 2,
                 maximumFractionDigits: 2,
             }).format(toNumber(value))
+        }
 
         const formatDateDisplay = (value: unknown): string => {
             if (!value) return "-"
             const d = new Date(String(value))
-            return `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}-${d.getFullYear()}`
+            const mm = String(d.getMonth() + 1).padStart(2, "0")
+            const dd = String(d.getDate()).padStart(2, "0")
+            const yyyy = d.getFullYear()
+            return `${mm}-${dd}-${yyyy}`
         }
 
         const formatInvoiceNumber = (value: unknown, invoiceId: number): string => {
             if (!value) return `00000000-${invoiceId}`
             const d = new Date(String(value))
-            return `${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}${d.getFullYear()}-${invoiceId}`
+            const mm = String(d.getMonth() + 1).padStart(2, "0")
+            const dd = String(d.getDate()).padStart(2, "0")
+            const yyyy = d.getFullYear()
+            return `${mm}${dd}${yyyy}-${invoiceId}`
         }
 
         const totalDiscount = round2(toNumber(factura.total_descuento))
@@ -65,13 +75,18 @@ export default defineEventHandler(async (event) => {
         const taxes = round2(toNumber(factura.taxes))
         const invoiceTotal = round2(toNumber(factura.total))
 
-        const squareRate = round2(toNumber(factura.tasa_square) || 0.035)
-        const squareFixed = round2(toNumber(factura.fee_square_fijo) || 0.15)
+        // NO redondear la tasa a 2 decimales porque 0.035 se vuelve 0.04
+        const squareRateRaw = toNumber(factura.tasa_square)
+        const squareRate = squareRateRaw > 0 ? squareRateRaw : 0.035
 
-        // 🔥 CORRECCIÓN CLAVE AQUÍ
+        const squareFixedRaw = toNumber(factura.fee_square_fijo)
+        const squareFixed = squareFixedRaw > 0 ? squareFixedRaw : 0.15
+
         let cardProcessingFee = 0
         let totalDue = invoiceTotal
 
+        // Si paga con tarjeta y quieres que entren limpios los 630,
+        // la base correcta es subTotal, no invoiceTotal
         if (factura.paga_con_tarjeta) {
             totalDue = round2((subTotal + squareFixed) / (1 - squareRate))
             cardProcessingFee = round2(totalDue - subTotal)
@@ -109,7 +124,12 @@ export default defineEventHandler(async (event) => {
         let cursorY = 22
 
         const drawLine = (y: number) => {
-            doc.moveTo(left, y).lineTo(right, y).strokeColor("#cfcfcf").lineWidth(1).stroke()
+            doc
+                .moveTo(left, y)
+                .lineTo(right, y)
+                .strokeColor("#cfcfcf")
+                .lineWidth(1)
+                .stroke()
         }
 
         const drawText = (
@@ -122,23 +142,32 @@ export default defineEventHandler(async (event) => {
             size = 9,
             color = "#111111"
         ) => {
-            doc.font(bold ? "Helvetica-Bold" : "Helvetica")
+            doc
+                .font(bold ? "Helvetica-Bold" : "Helvetica")
                 .fontSize(size)
                 .fillColor(color)
-                .text(text || "-", x, y, { width, align, ellipsis: true })
+                .text(text || "-", x, y, {
+                    width,
+                    align,
+                    ellipsis: true,
+                })
         }
 
         // HEADER
         const logoPath = path.join(process.cwd(), "public", "logo3.jpeg")
         if (fs.existsSync(logoPath)) {
-            const logoWidth = 250
-            const logoX = ((pageWidth - logoWidth) / 2) + 60
-            doc.image(logoPath, logoX, cursorY, { fit: [logoWidth, 95] })
+            try {
+                const logoWidth = 250
+                const logoX = ((pageWidth - logoWidth) / 2) + 60
+                doc.image(logoPath, logoX, cursorY, {
+                    fit: [logoWidth, 95],
+                })
+            } catch {}
         }
 
-        drawText("INVOICE", right - 210, cursorY + 2, 210, "right", true, 22)
-        drawText(`Invoice #: ${factura.numero}`, right - 210, cursorY + 28, 210, "right")
-        drawText(`Date: ${dateText}`, right - 210, cursorY + 48, 210, "right")
+        drawText("INVOICE", right - 210, cursorY + 2, 210, "right", true, 22, "#222222")
+        drawText(`Invoice #: ${factura.numero}`, right - 210, cursorY + 28, 210, "right", false, 11, "#333333")
+        drawText(`Date: ${dateText}`, right - 210, cursorY + 48, 210, "right", false, 11, "#333333")
 
         drawText("1706 LOUDON AVE NW ROANOKE VA 24017", left, cursorY + 103, contentWidth, "center", false, 10, "#666666")
 
@@ -146,27 +175,182 @@ export default defineEventHandler(async (event) => {
         drawLine(cursorY)
         cursorY += 12
 
-        // FOOTER (TOTALES)
-        const footerY = pageHeight - 92
+        // INFO BLOCKS
+        const billX = left
+        const billW = 170
 
-        drawText("Discount:", left, footerY, 80)
-        drawText(money(totalDiscount), left + 60, footerY, 80)
+        const shipX = left + 200
+        const shipW = 150
 
-        drawText("Sub Total:", left + 140, footerY, 80)
-        drawText(money(subTotal), left + 210, footerY, 80)
+        const rightInfoW = 150
+        const rightInfoX = right - rightInfoW
 
-        drawText("Taxes:", left + 290, footerY, 80)
-        drawText(money(taxes), left + 340, footerY, 80)
+        drawText("Bill To:", billX, cursorY, billW, "left", true, 10.5, "#333333")
+        drawText(cliente, billX, cursorY + 14, billW, "left", false, 9.5, "#111111")
 
-        drawText("Fees:", left + 400, footerY, 80)
-        drawText(money(cardProcessingFee), left + 440, footerY, 80)
+        drawText("Ship To:", shipX, cursorY, shipW, "left", true, 10.5, "#333333")
+        drawText(shipTo, shipX, cursorY + 14, shipW, "left", false, 9.5, "#111111")
 
-        drawText("Total:", left + 500, footerY, 60, "left", true, 11)
-        drawText(money(totalDue), left + 540, footerY, 80, "left", true, 11)
+        drawText("Latest Ship Date:", rightInfoX, cursorY, rightInfoW, "left", true, 10, "#333333")
+        drawText(latestShipDate, rightInfoX, cursorY + 12, rightInfoW, "left", false, 9.5, "#111111")
+
+        drawText("Payment Method:", rightInfoX, cursorY + 32, rightInfoW, "left", true, 10, "#333333")
+        drawText(paymentMethod, rightInfoX, cursorY + 44, rightInfoW, "left", false, 9.5, "#111111")
+
+        cursorY += 72
+
+        if (hasNotes) {
+            drawText("Notes:", left, cursorY, contentWidth, "left", true, 10.5, "#333333")
+            drawText(rawNotes, left, cursorY + 14, contentWidth, "left", false, 9.5, "#111111")
+        }
+
+        // TABLE
+        const tableX = left
+        const tableY = cursorY
+        const tableWidth = contentWidth
+
+        const footerTopY = pageHeight - 100
+        const tableBottomY = footerTopY - 12
+        const tableHeight = tableBottomY - tableY
+
+        const headerHeight = 22
+        const rowHeight = 17
+
+        const cols = {
+            itemNo: { x: tableX + 5, w: 24 },
+            description: { x: tableX + 34, w: 245 },
+            qty: { x: tableX + 284, w: 48 },
+            unit: { x: tableX + 337, w: 64 },
+            discount: { x: tableX + 406, w: 62 },
+            total: { x: tableX + 473, w: 62 },
+        }
+
+        doc
+            .rect(tableX, tableY, tableWidth, tableHeight)
+            .strokeColor("#bdbdbd")
+            .lineWidth(1)
+            .stroke()
+
+        doc
+            .rect(tableX, tableY, tableWidth, headerHeight)
+            .fill("#e9e9e9")
+
+        drawText("#", cols.itemNo.x, tableY + 6, cols.itemNo.w, "left", true, 7.2)
+        drawText("Description", cols.description.x, tableY + 6, cols.description.w, "left", true, 7.2)
+        drawText("Qty", cols.qty.x, tableY + 6, cols.qty.w, "right", true, 7.2)
+        drawText("Unit Price", cols.unit.x, tableY + 6, cols.unit.w, "right", true, 7.2)
+        drawText("Discount", cols.discount.x, tableY + 6, cols.discount.w, "right", true, 7.2)
+        drawText("Total", cols.total.x, tableY + 6, cols.total.w, "right", true, 7.2)
+
+        doc
+            .moveTo(tableX, tableY + headerHeight)
+            .lineTo(tableX + tableWidth, tableY + headerHeight)
+            .strokeColor("#bdbdbd")
+            .lineWidth(1)
+            .stroke()
+
+        const visibleRows = Math.max(items.length, 1)
+        const innerGridBottomY = Math.min(
+            tableY + headerHeight + visibleRows * rowHeight,
+            tableY + tableHeight
+        )
+
+        const verticals = [
+            cols.description.x - 5,
+            cols.qty.x - 5,
+            cols.unit.x - 5,
+            cols.discount.x - 5,
+            cols.total.x - 5,
+        ]
+
+        for (const vx of verticals) {
+            doc
+                .moveTo(vx, tableY)
+                .lineTo(vx, innerGridBottomY)
+                .strokeColor("#d2d2d2")
+                .lineWidth(1)
+                .stroke()
+        }
+
+        let rowY = tableY + headerHeight
+
+        for (let i = 0; i < items.length; i++) {
+            doc
+                .moveTo(tableX, rowY)
+                .lineTo(tableX + tableWidth, rowY)
+                .strokeColor("#e1e1e1")
+                .lineWidth(1)
+                .stroke()
+
+            const item = items[i]
+            const descripcion = `${item.cod || "-"}  ${item.articulo || "-"}`
+
+            drawText(String(i + 1), cols.itemNo.x, rowY + 4.2, cols.itemNo.w, "left", false, 7.0)
+            drawText(descripcion, cols.description.x, rowY + 4.2, cols.description.w, "left", false, 7.0)
+            drawText(toNumber(item.cantidad).toFixed(2), cols.qty.x, rowY + 4.2, cols.qty.w, "right", false, 7.0)
+            drawText(money(item.precio), cols.unit.x, rowY + 4.2, cols.unit.w, "right", false, 7.0)
+            drawText(money(item.total_descuento), cols.discount.x, rowY + 4.2, cols.discount.w, "right", false, 7.0)
+            drawText(money(item.total_registro), cols.total.x, rowY + 4.2, cols.total.w, "right", false, 7.0)
+
+            rowY += rowHeight
+        }
+
+        if (items.length > 0) {
+            doc
+                .moveTo(tableX, innerGridBottomY)
+                .lineTo(tableX + tableWidth, innerGridBottomY)
+                .strokeColor("#d2d2d2")
+                .lineWidth(1)
+                .stroke()
+        }
+
+        // FOOTER HORIZONTAL
+        const footerY = footerTopY + 8
+        const footerFont = 9.1
+        const startX = left + 8
+
+        drawText("Discount:", startX, footerY, 52, "left", false, footerFont, "#333333")
+        drawText(money(totalDiscount), startX + 52, footerY, 58, "left", false, footerFont, "#111111")
+
+        drawText("Sub Total:", startX + 118, footerY, 58, "left", false, footerFont, "#333333")
+        drawText(money(subTotal), startX + 176, footerY, 66, "left", false, footerFont, "#111111")
+
+        drawText("Taxes:", startX + 248, footerY, 42, "left", false, footerFont, "#333333")
+        drawText(money(taxes), startX + 290, footerY, 58, "left", false, footerFont, "#111111")
+
+        drawText("Fees:", startX + 352, footerY, 34, "left", false, footerFont, "#333333")
+        drawText(money(cardProcessingFee), startX + 386, footerY, 58, "left", false, footerFont, "#111111")
+
+        drawText("Total:", startX + 456, footerY - 1, 36, "left", true, 10.3, "#111111")
+        drawText(money(totalDue), startX + 494, footerY - 1, 78, "left", true, 10.3, "#111111")
+
+        drawText(
+            "Thank you for your purchase",
+            left,
+            footerY + 18,
+            contentWidth,
+            "center",
+            false,
+            6.1,
+            "#666666"
+        )
+
+        const range = doc.bufferedPageRange()
+        for (let i = 0; i < range.count; i++) {
+            doc.switchToPage(i)
+            doc
+                .font("Helvetica")
+                .fontSize(8.0)
+                .fillColor("#444444")
+                .text(`page ${i + 1} / ${range.count}`, left, footerY + 40, {
+                    width: contentWidth,
+                    align: "center",
+                })
+        }
 
         doc.end()
-        return sendStream(event, stream)
 
+        return sendStream(event, stream)
     } catch (error: any) {
         console.error("PDF ERROR:", error)
         throw createError({
