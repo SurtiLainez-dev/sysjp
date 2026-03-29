@@ -86,10 +86,12 @@ export default defineEventHandler(async (event) => {
         )
 
         const taxes = round2(sub_total * TAX_RATE)
-        const total = round2(sub_total + taxes)
 
-        // Base neta deseada para square = subtotal limpio
-        const base_neta_para_square = sub_total
+        const total_sin_fee = round2(sub_total + taxes)
+
+        const base_neta_para_square = paga_con_tarjeta
+            ? total_sin_fee
+            : 0
 
         const total_a_colocar_square = paga_con_tarjeta
             ? round2((base_neta_para_square + SQUARE_FIXED) / (1 - SQUARE_RATE))
@@ -99,7 +101,10 @@ export default defineEventHandler(async (event) => {
             ? round2(total_a_colocar_square - base_neta_para_square)
             : 0
 
-        // Generar correlativo del número de factura
+        const total = paga_con_tarjeta
+            ? total_a_colocar_square
+            : total_sin_fee
+
         const totalRegistros = await prisma.facGenerica.count()
         const siguienteConsecutivo = totalRegistros + 1
         const numero = generarNumeroFactura(siguienteConsecutivo)

@@ -61,9 +61,8 @@ export default defineEventHandler(async (event) => {
             return `${mm}-${dd}-${yyyy}`
         }
 
-        const formatInvoiceNumber = (value: unknown, invoiceId: number): string => {
-            if (!value) return `00000000-${invoiceId}`
-            const d = new Date(String(value))
+        const formatInvoiceNumber = (_value: unknown, invoiceId: number): string => {
+            const d = new Date()
             const mm = String(d.getMonth() + 1).padStart(2, "0")
             const dd = String(d.getDate()).padStart(2, "0")
             const yyyy = d.getFullYear()
@@ -75,7 +74,6 @@ export default defineEventHandler(async (event) => {
         const taxes = round2(toNumber(factura.taxes))
         const invoiceTotal = round2(toNumber(factura.total))
 
-        // NO redondear la tasa a 2 decimales porque 0.035 se vuelve 0.04
         const squareRateRaw = toNumber(factura.tasa_square)
         const squareRate = squareRateRaw > 0 ? squareRateRaw : 0.035
 
@@ -85,11 +83,11 @@ export default defineEventHandler(async (event) => {
         let cardProcessingFee = 0
         let totalDue = invoiceTotal
 
-        // Si paga con tarjeta y quieres que entren limpios los 630,
-        // la base correcta es subTotal, no invoiceTotal
+        const baseConTaxes = round2(subTotal + taxes)
+
         if (factura.paga_con_tarjeta) {
-            totalDue = round2((subTotal + squareFixed) / (1 - squareRate))
-            cardProcessingFee = round2(totalDue - subTotal)
+            totalDue = round2((baseConTaxes + squareFixed) / (1 - squareRate))
+            cardProcessingFee = round2(totalDue - baseConTaxes)
         }
 
         const invoiceNumberText = formatInvoiceNumber(factura.fecha, factura.id)
@@ -153,7 +151,6 @@ export default defineEventHandler(async (event) => {
                 })
         }
 
-        // HEADER
         const logoPath = path.join(process.cwd(), "public", "logo3.jpeg")
         if (fs.existsSync(logoPath)) {
             try {
@@ -166,7 +163,7 @@ export default defineEventHandler(async (event) => {
         }
 
         drawText("INVOICE", right - 210, cursorY + 2, 210, "right", true, 22, "#222222")
-        drawText(`Invoice #: ${factura.numero}`, right - 210, cursorY + 28, 210, "right", false, 11, "#333333")
+        drawText(`Invoice #: ${factura.numero || invoiceNumberText}`, right - 210, cursorY + 28, 210, "right", false, 11, "#333333")
         drawText(`Date: ${dateText}`, right - 210, cursorY + 48, 210, "right", false, 11, "#333333")
 
         drawText("1706 LOUDON AVE NW ROANOKE VA 24017", left, cursorY + 103, contentWidth, "center", false, 10, "#666666")
@@ -175,7 +172,6 @@ export default defineEventHandler(async (event) => {
         drawLine(cursorY)
         cursorY += 12
 
-        // INFO BLOCKS
         const billX = left
         const billW = 170
 
@@ -204,7 +200,6 @@ export default defineEventHandler(async (event) => {
             drawText(rawNotes, left, cursorY + 14, contentWidth, "left", false, 9.5, "#111111")
         }
 
-        // TABLE
         const tableX = left
         const tableY = cursorY
         const tableWidth = contentWidth
@@ -304,7 +299,6 @@ export default defineEventHandler(async (event) => {
                 .stroke()
         }
 
-        // FOOTER HORIZONTAL
         const footerY = footerTopY + 8
         const footerFont = 9.1
         const startX = left + 8

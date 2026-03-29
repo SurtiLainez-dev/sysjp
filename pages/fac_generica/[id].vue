@@ -127,7 +127,7 @@
                   <v-card variant="tonal" class="rounded-lg resumen-top pa-4">
                     <div class="text-body-2 text-medium-emphasis mb-1">Total de la Factura</div>
                     <div class="text-h4 font-weight-bold">
-                      {{ money(factura.total) }}
+                      {{ money(totalMostrado) }}
                     </div>
                     <div class="text-body-2 text-medium-emphasis mt-1">
                       Taxes incluidos: {{ money(factura.taxes) }}
@@ -235,8 +235,7 @@
 
                       <div class="text-body-2 text-medium-emphasis">
                         Esta factura muestra el total normal con taxes y, si fue marcada como
-                        pago con tarjeta, también cuánto debías colocar en Square para recibir
-                        limpio el subtotal.
+                        pago con tarjeta, también cuánto debías colocar en Square.
                       </div>
                     </v-card-text>
                   </v-card>
@@ -264,15 +263,15 @@
                         <strong>{{ money(factura.taxes) }}</strong>
                       </div>
 
-                      <div class="resumen-line resumen-line-total">
-                        <span>Total</span>
-                        <strong>{{ money(factura.total) }}</strong>
-                      </div>
-
                       <template v-if="factura.paga_con_tarjeta">
                         <div class="resumen-line">
                           <span>Fee Square estimado</span>
                           <strong>{{ money(factura.square_fee_calculado || 0) }}</strong>
+                        </div>
+
+                        <div class="resumen-line resumen-line-total">
+                          <span>Total</span>
+                          <strong>{{ money(factura.total_a_colocar_square) }}</strong>
                         </div>
 
                         <div class="resumen-line resumen-line-square">
@@ -281,9 +280,16 @@
                         </div>
                       </template>
 
-                      <div v-else class="text-body-2 text-medium-emphasis mt-3">
-                        Esta factura no fue marcada como pago con tarjeta.
-                      </div>
+                      <template v-else>
+                        <div class="resumen-line resumen-line-total">
+                          <span>Total</span>
+                          <strong>{{ money(factura.total) }}</strong>
+                        </div>
+
+                        <div class="text-body-2 text-medium-emphasis mt-3">
+                          Esta factura no fue marcada como pago con tarjeta.
+                        </div>
+                      </template>
                     </v-card-text>
                   </v-card>
                 </v-col>
@@ -338,6 +344,13 @@ const snackbar = reactive({
   show: false,
   text: "",
   color: "success",
+})
+
+const totalMostrado = computed(() => {
+  if (!factura.value) return 0
+  return factura.value.paga_con_tarjeta
+      ? num(factura.value.total_a_colocar_square)
+      : num(factura.value.total)
 })
 
 function num(value: unknown): number {

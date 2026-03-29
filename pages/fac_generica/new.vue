@@ -121,7 +121,7 @@
                 <v-card variant="tonal" class="rounded-lg resumen-top pa-4">
                   <div class="text-body-2 text-medium-emphasis mb-1">Total de la Factura</div>
                   <div class="text-h4 font-weight-bold">
-                    {{ money(total) }}
+                    {{ money(totalFinalFactura) }}
                   </div>
                   <div class="text-body-2 text-medium-emphasis mt-1">
                     Taxes incluidos: {{ money(taxes) }}
@@ -296,8 +296,7 @@
 
                     <div class="text-body-2 text-medium-emphasis">
                       Cuando la factura se paga con tarjeta, el sistema calcula automáticamente
-                      cuánto debes colocar en Square para que el neto recibido sea igual al subtotal
-                      de la factura, antes de taxes.
+                      el total real que debes cobrar en Square para cubrir subtotal, taxes y fee.
                     </div>
                   </v-card-text>
                 </v-card>
@@ -311,11 +310,6 @@
                     </div>
 
                     <div class="resumen-line">
-                      <span>Total descuento</span>
-                      <strong>{{ money(totalDescuento) }}</strong>
-                    </div>
-
-                    <div class="resumen-line">
                       <span>Sub total</span>
                       <strong>{{ money(subTotal) }}</strong>
                     </div>
@@ -325,32 +319,22 @@
                       <strong>{{ money(taxes) }}</strong>
                     </div>
 
-                    <div class="resumen-line resumen-line-total">
-                      <span>Total</span>
-                      <strong>{{ money(total) }}</strong>
-                    </div>
-
-                    <div class="resumen-line" v-if="form.paga_con_tarjeta">
-                      <span>Base neta deseada</span>
-                      <strong>{{ money(baseNetaParaSquare) }}</strong>
-                    </div>
-
                     <div class="resumen-line" v-if="form.paga_con_tarjeta">
                       <span>Fee Square estimado</span>
                       <strong>{{ money(squareFeeCalculado) }}</strong>
                     </div>
 
-                    <div
-                        class="resumen-line resumen-line-square"
-                        v-if="form.paga_con_tarjeta"
-                    >
-                      <span>Total a colocar en Square</span>
-                      <strong>{{ money(totalAColocarSquare) }}</strong>
+                    <div class="resumen-line resumen-line-total">
+                      <span>Total</span>
+                      <strong>{{ money(totalFinalFactura) }}</strong>
+                    </div>
+
+                    <div v-if="form.paga_con_tarjeta" class="text-body-2 text-medium-emphasis mt-3">
+                      Este es el monto final que debes cobrar en Square.
                     </div>
 
                     <div v-else class="text-body-2 text-medium-emphasis mt-3">
-                      Si activas “Pago con tarjeta”, aquí se mostrará el monto que debes
-                      cobrar en Square para que te quede limpio el subtotal.
+                      Si activas “Pago con tarjeta”, el total incluirá automáticamente el fee de Square.
                     </div>
                   </v-card-text>
                 </v-card>
@@ -456,7 +440,7 @@ const metodoPago = computed({
   },
 })
 
-function crearFila(): DetalleItem {
+const crearFila = (): DetalleItem => {
   return {
     uid: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     cod: "",
@@ -467,35 +451,31 @@ function crearFila(): DetalleItem {
   }
 }
 
-function agregarFila() {
+const agregarFila = () => {
   form.cuerpo.push(crearFila())
 }
 
-function eliminarFila(index: number) {
+const eliminarFila = (index: number) => {
   form.cuerpo.splice(index, 1)
 }
 
-function num(value: unknown): number {
+const num = (value: unknown): number => {
   const n = Number(value)
   return Number.isFinite(n) ? n : 0
 }
 
-function round2(value: number): number {
+const round2 = (value: number): number => {
   return Math.round((value + Number.EPSILON) * 100) / 100
 }
 
-function totalDescuentoFila(item: DetalleItem): number {
+const totalDescuentoFila = (item: DetalleItem): number => {
   return round2(num(item.descuento_unidad) * num(item.cantidad))
 }
 
-function totalRegistroFila(item: DetalleItem): number {
+const totalRegistroFila = (item: DetalleItem): number => {
   const total = num(item.precio) * num(item.cantidad) - totalDescuentoFila(item)
   return round2(total < 0 ? 0 : total)
 }
-
-const totalDescuento = computed(() => {
-  return round2(form.cuerpo.reduce((acc, item) => acc + totalDescuentoFila(item), 0))
-})
 
 const subTotal = computed(() => {
   return round2(form.cuerpo.reduce((acc, item) => acc + totalRegistroFila(item), 0))
@@ -505,25 +485,26 @@ const taxes = computed(() => {
   return round2(subTotal.value * TAX_RATE)
 })
 
-const total = computed(() => {
+const totalSinFee = computed(() => {
   return round2(subTotal.value + taxes.value)
-})
-
-const baseNetaParaSquare = computed(() => {
-  return round2(subTotal.value)
-})
-
-const totalAColocarSquare = computed(() => {
-  if (!form.paga_con_tarjeta) return 0
-  return round2((baseNetaParaSquare.value + SQUARE_FIXED) / (1 - SQUARE_RATE))
 })
 
 const squareFeeCalculado = computed(() => {
   if (!form.paga_con_tarjeta) return 0
-  return round2(totalAColocarSquare.value - baseNetaParaSquare.value)
+  const totalSquare = round2((totalSinFee.value + SQUARE_FIXED) / (1 - SQUARE_RATE))
+  return round2(totalSquare - totalSinFee.value)
 })
 
-function money(value: number | string) {
+const totalAColocarSquare = computed(() => {
+  if (!form.paga_con_tarjeta) return 0
+  return round2((totalSinFee.value + SQUARE_FIXED) / (1 - SQUARE_RATE))
+})
+
+const totalFinalFactura = computed(() => {
+  return form.paga_con_tarjeta ? totalAColocarSquare.value : totalSinFee.value
+})
+
+const money = (value: number | string) => {
   const amount = num(value)
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -533,7 +514,7 @@ function money(value: number | string) {
   }).format(amount)
 }
 
-function validarFormulario() {
+const validarFormulario = () => {
   if (!form.cuerpo.length) {
     mostrarMensaje("Debes agregar al menos una fila", "error")
     return false
@@ -569,13 +550,16 @@ function validarFormulario() {
   return true
 }
 
-function mostrarMensaje(text: string, color: "success" | "error" | "warning" = "success") {
+const mostrarMensaje = (
+    text: string,
+    color: "success" | "error" | "warning" = "success"
+) => {
   snackbar.text = text
   snackbar.color = color
   snackbar.show = true
 }
 
-async function guardarFactura() {
+const guardarFactura = async () => {
   if (guardando.value) return
   if (!validarFormulario()) return
 
@@ -606,13 +590,11 @@ async function guardarFactura() {
         observacion: form.observacion,
         cuerpo: cuerpoLimpio,
 
-        total_descuento: totalDescuento.value,
         sub_total: subTotal.value,
         taxes: taxes.value,
-        total: total.value,
-        base_neta_para_square: baseNetaParaSquare.value,
-        total_a_colocar_square: totalAColocarSquare.value,
+        total: totalFinalFactura.value,
         square_fee_calculado: squareFeeCalculado.value,
+        total_a_colocar_square: totalAColocarSquare.value,
       },
     })
 
@@ -695,12 +677,6 @@ onMounted(() => {
 .resumen-line-total {
   font-size: 18px;
   font-weight: 700;
-}
-
-.resumen-line-square {
-  font-size: 17px;
-  font-weight: 800;
-  color: rgb(var(--v-theme-primary));
 }
 
 @media (max-width: 960px) {

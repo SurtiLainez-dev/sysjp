@@ -103,9 +103,12 @@ export default defineEventHandler(async (event) => {
         )
 
         const taxes = round2(sub_total * TAX_RATE)
-        const total = round2(sub_total + taxes)
 
-        const base_neta_para_square = sub_total
+        const total_sin_fee = round2(sub_total + taxes)
+
+        const base_neta_para_square = paga_con_tarjeta
+            ? total_sin_fee
+            : 0
 
         const total_a_colocar_square = paga_con_tarjeta
             ? round2((base_neta_para_square + SQUARE_FIXED) / (1 - SQUARE_RATE))
@@ -114,6 +117,10 @@ export default defineEventHandler(async (event) => {
         const square_fee_calculado = paga_con_tarjeta
             ? round2(total_a_colocar_square - base_neta_para_square)
             : 0
+
+        const total = paga_con_tarjeta
+            ? total_a_colocar_square
+            : total_sin_fee
 
         const facturaActualizada = await prisma.$transaction(async (tx) => {
             await tx.cuerpoFacGenerica.deleteMany({
